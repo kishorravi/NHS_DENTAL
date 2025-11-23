@@ -2,236 +2,169 @@ import pandas as pd
 import streamlit as st
 import plotly.express as px
 
-# -------------------------
-# Page config
-# -------------------------
-st.set_page_config(
-    page_title="NHS Dental Contracts Dashboard",
-    page_icon="🦷",
-    layout="wide"
-)
+st.set_page_config(page_title="NHS Dental Contracts Dashboard", layout="wide")
 
-st.title("🦷 NHS Dental Contracts – Monthly Contractual Dashboard")
-st.caption(
-    "English Contractor Monthly General Dental and Orthodontic Contractual Dataset "
-    "(example: 202506 extract). Built for NHS-style information analysis."
-)
+st.title("NHS Dental Contracts Monthly Dashboard")
+st.caption("Dynamic analysis interface for NHS-style contract data")
 
-# -------------------------
-# Load data
-# -------------------------
+# Data loading & caching
 @st.cache_data
-def load_data(path: str) -> pd.DataFrame:
+def load_data(path):
     df = pd.read_csv(path)
-
-    # Create a proper date from YEAR_MONTH (e.g. 202506 -> 2025-06-01)
-    df["YEAR_MONTH_STR"] = df["YEAR_MONTH"].astype(str)
-    df["YEAR_MONTH_DATE"] = pd.to_datetime(df["YEAR_MONTH_STR"] + "01", format="%Y%m%d")
-
-    # Ensure key numeric columns are numeric
+    df['YEARMONTHSTR'] = df['YEARMONTH'].astype(str)
+    df['YEARMONTHDATE'] = pd.to_datetime(df['YEARMONTHSTR'] + "-01", format="%Y-%m-%d")
     numeric_cols = [
-        "TOTAL_FIN_VALUE",
-        "CONTRACTED_UDA",
-        "CONTRACTED_UOA",
-        "GENERAL_DENT_FIN_VALUE",
-        "ORTHO_FIN_VALUE",
+        "TOTALFINVALUE", "CONTRACTEDUDA", "CONTRACTEDUOA", "GENERALDENTFINVALUE", "ORTHOFINVALUE"
     ]
     for col in numeric_cols:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce")
-
     return df
 
-
-# Default file path (your local file)
-DEFAULT_PATH = "contract_annual_202506.csv"
-
-uploaded = st.sidebar.file_uploader("📁 Upload NHS Dental Contract CSV", type=["csv"])
-
+DEFAULT_PATH = "contractannual202506.csv"
+uploaded = st.sidebar.file_uploader("Upload NHS Dental Contract CSV", type="csv")
 if uploaded is not None:
     df = load_data(uploaded)
 else:
-    st.sidebar.info("Using default file: `contract_annual_202506.csv` in this folder.")
+    st.sidebar.info("Using default local file.")
     df = load_data(DEFAULT_PATH)
 
-# -------------------------
-# Sidebar filters
-# -------------------------
-st.sidebar.header("🔎 Filters")
-
-# Commissioner filter
-commissioners = sorted(df["COMMISSIONER_NAME"].dropna().unique())
-selected_commissioners = st.sidebar.multiselect(
-    "Commissioner (ICB)",
-    options=commissioners,
-    default=commissioners,   # all selected by default
-)
-
-# Prison / non-prison contracts
-if "PRISON_IND" in df.columns:
-    prison_values = sorted(df["PRISON_IND"].dropna().unique())
-    selected_prison = st.sidebar.multiselect(
-        "Prison Indicator",
-        options=prison_values,
-        default=prison_values,
-    )
+# Sidebar: Interactive Filters
+commissioners = sorted(df["COMMISSIONERNAME"].dropna().unique())
+selected_comm = st.sidebar.multiselect("Commissioner ICB", options=commissioners, default=commissioners)
+if "PRISONIND" in df.columns:
+    prison_vals = sorted(df["PRISONIND"].dropna().unique())
+    selected_prison = st.sidebar.multiselect("Prison Indicator", options=prison_vals, default=prison_vals)
 else:
     selected_prison = None
 
-# Minimum total contract value filter
-if "TOTAL_FIN_VALUE" in df.columns:
-    min_value = float(df["TOTAL_FIN_VALUE"].min())
-    max_value = float(df["TOTAL_FIN_VALUE"].max())
+if "TOTALFINVALUE" in df.columns:
+    min_value = float(df["TOTALFINVALUE"].min())
+    max_value = float(df["TOTALFINVALUE"].max())
     value_range = st.sidebar.slider(
-        "Total Financial Value (£) – contract filter",
-        min_value=round(min_value, 0),
-        max_value=round(max_value, 0),
-        value=(round(min_value, 0), round(max_value, 0)),
-        step=1000.0,
+        "Total Financial Value", min_value, max_value, (min_value, max_value), step=1000.0
     )
 else:
     value_range = None
 
-# Apply filters
 df_filtered = df.copy()
-
-if selected_commissioners:
-    df_filtered = df_filtered[df_filtered["COMMISSIONER_NAME"].isin(selected_commissioners)]
-
+if selected_comm:
+    df_filtered = df_filtered[df_filtered["COMMISSIONERNAME"].isin(selected_comm)]
 if selected_prison is not None:
-    df_filtered = df_filtered[df_filtered["PRISON_IND"].isin(selected_prison)]
-
-if value_range is not None and "TOTAL_FIN_VALUE" in df_filtered.columns:
+    df_filtered = df_filtered[df_filtered["PRISONIND"].isin(selected_prison)]
+if value_range and "TOTALFINVALUE" in df_filtered.columns:
     low, high = value_range
     df_filtered = df_filtered[
-        (df_filtered["TOTAL_FIN_VALUE"] >= low) &
-        (df_filtered["TOTAL_FIN_VALUE"] <= high)
+        (df_filtered["TOTALFINVALUE"] >= low) & (df_filtered["TOTALFINVALUE"] <= high)
     ]
 
-st.write(f"Showing **{len(df_filtered):,}** contracts after filtering.")
+st.write(f"Showing {len(df_filtered):,} contracts after filtering.")
 
-# -------------------------
-# KPIs
-# -------------------------
+# Top Metrics
 col1, col2, col3, col4 = st.columns(4)
-
-with col1:
-    st.metric("Total Contracts", f"{len(df_filtered):,}")
-
-with col2:
-    if "TOTAL_FIN_VALUE" in df_filtered.columns:
-        total_value = df_filtered["TOTAL_FIN_VALUE"].sum()
-        st.metric("Total Contract Value (£)", f"{total_value:,.0f}")
-    else:
-        st.metric("Total Contract Value (£)", "N/A")
-
-with col3:
-    if "CONTRACTED_UDA" in df_filtered.columns:
-        total_uda = df_filtered["CONTRACTED_UDA"].sum()
-        st.metric("Total Contracted UDA", f"{total_uda:,.0f}")
-    else:
-        st.metric("Total Contracted UDA", "N/A")
-
-with col4:
-    if "CONTRACTED_UOA" in df_filtered.columns:
-        total_uoa = df_filtered["CONTRACTED_UOA"].sum()
-        st.metric("Total Contracted UOA", f"{total_uoa:,.0f}")
-    else:
-        st.metric("Total Contracted UOA", "N/A")
+col1.metric("Total Contracts", f"{len(df_filtered):,}")
+col2.metric(
+    "Total Contract Value",
+    f"{df_filtered['TOTALFINVALUE'].sum():,.0f}" if "TOTALFINVALUE" in df_filtered.columns else "NA"
+)
+col3.metric(
+    "Total Contracted UDA",
+    f"{df_filtered['CONTRACTEDUDA'].sum():,.0f}" if "CONTRACTEDUDA" in df_filtered.columns else "NA"
+)
+col4.metric(
+    "Total Contracted UOA",
+    f"{df_filtered['CONTRACTEDUOA'].sum():,.0f}" if "CONTRACTEDUOA" in df_filtered.columns else "NA"
+)
 
 st.markdown("---")
 
-# -------------------------
-# Aggregations by Commissioner
-# -------------------------
-st.subheader("📍 Commissioner-level Summary")
+# Dynamic Visualizations: Chart Tabs
+st.subheader("Visualisations")
 
-group_cols = ["COMMISSIONER_NAME"]
-
-agg_dict = {}
-if "TOTAL_FIN_VALUE" in df_filtered.columns:
-    agg_dict["TOTAL_FIN_VALUE"] = "sum"
-if "CONTRACTED_UDA" in df_filtered.columns:
-    agg_dict["CONTRACTED_UDA"] = "sum"
-if "CONTRACTED_UOA" in df_filtered.columns:
-    agg_dict["CONTRACTED_UOA"] = "sum"
-
-df_comm = df_filtered.groupby(group_cols).agg(agg_dict).reset_index()
-
-st.dataframe(df_comm.sort_values("TOTAL_FIN_VALUE", ascending=False), use_container_width=True)
-
-# -------------------------
-# Charts
-# -------------------------
-st.subheader("📊 Visualisations")
-
-tab1, tab2, tab3 = st.tabs([
-    "💰 Total Contract Value by Commissioner",
-    "🦷 UDA / UOA by Commissioner",
-    "🏥 Top Providers by Contract Value",
+tab1, tab2, tab3, tab4 = st.tabs([
+    "Total Contract Value by Commissioner",
+    "UDA/UOA by Commissioner",
+    "Top Providers by Value",
+    "Custom Chart"
 ])
 
-# --- Tab 1: Total contract value ---
 with tab1:
-    if "TOTAL_FIN_VALUE" in df_comm.columns and not df_comm.empty:
-        fig_val = px.bar(
-            df_comm.sort_values("TOTAL_FIN_VALUE", ascending=False),
-            x="COMMISSIONER_NAME",
-            y="TOTAL_FIN_VALUE",
-            title="Total Contract Value (£) by Commissioner",
+    if "TOTALFINVALUE" in df_filtered.columns:
+        df_comm = (
+            df_filtered.groupby("COMMISSIONERNAME")["TOTALFINVALUE"]
+            .sum()
+            .reset_index()
+            .sort_values("TOTALFINVALUE", ascending=False)
         )
-        fig_val.update_layout(xaxis_title="Commissioner (ICB)", yaxis_title="Total £", xaxis_tickangle=-45)
+        fig_val = px.bar(
+            df_comm, x="COMMISSIONERNAME", y="TOTALFINVALUE",
+            title="Total Contract Value by Commissioner"
+        )
+        fig_val.update_layout(xaxis_title="Commissioner", yaxis_title="Total Value", xaxis_tickangle=-45)
         st.plotly_chart(fig_val, use_container_width=True)
     else:
-        st.info("TOTAL_FIN_VALUE not available in this extract.")
+        st.info("TOTALFINVALUE not available.")
 
-# --- Tab 2: Contracted UDA / UOA ---
 with tab2:
-    if ("CONTRACTED_UDA" in df_comm.columns or "CONTRACTED_UOA" in df_comm.columns) and not df_comm.empty:
-        df_long = df_comm.melt(
-            id_vars="COMMISSIONER_NAME",
-            value_vars=[c for c in ["CONTRACTED_UDA", "CONTRACTED_UOA"] if c in df_comm.columns],
-            var_name="Measure",
-            value_name="Value"
+    metric = st.selectbox("Select UDA/UOA Metric", ["CONTRACTEDUDA", "CONTRACTEDUOA"])
+    if metric in df_filtered.columns:
+        df_comm = (
+            df_filtered.groupby("COMMISSIONERNAME")[metric]
+            .sum()
+            .reset_index()
+            .sort_values(metric, ascending=False)
         )
         fig_uda = px.bar(
-            df_long.sort_values("Value", ascending=False),
-            x="COMMISSIONER_NAME",
-            y="Value",
-            color="Measure",
-            barmode="group",
-            title="Contracted UDA / UOA by Commissioner",
+            df_comm, x="COMMISSIONERNAME", y=metric,
+            title=f"{metric} by Commissioner"
         )
-        fig_uda.update_layout(xaxis_title="Commissioner (ICB)", xaxis_tickangle=-45)
+        fig_uda.update_layout(xaxis_title="Commissioner", yaxis_title=metric, xaxis_tickangle=-45)
         st.plotly_chart(fig_uda, use_container_width=True)
     else:
-        st.info("No CONTRACTED_UDA / CONTRACTED_UOA columns available.")
+        st.info(f"{metric} not available.")
 
-# --- Tab 3: Top providers ---
 with tab3:
-    if "TOTAL_FIN_VALUE" in df_filtered.columns:
+    if "TOTALFINVALUE" in df_filtered.columns and "PROVIDERNAME" in df_filtered.columns:
         df_prov = (
-            df_filtered.groupby("PROVIDER_NAME", as_index=False)["TOTAL_FIN_VALUE"]
+            df_filtered.groupby("PROVIDERNAME")["TOTALFINVALUE"]
             .sum()
-            .sort_values("TOTAL_FIN_VALUE", ascending=False)
+            .reset_index()
+            .sort_values("TOTALFINVALUE", ascending=False)
             .head(20)
         )
         st.write("Top 20 Providers by Total Contract Value")
         st.dataframe(df_prov, use_container_width=True)
-
         fig_prov = px.bar(
-            df_prov,
-            x="PROVIDER_NAME",
-            y="TOTAL_FIN_VALUE",
-            title="Top 20 Providers by Contract Value (£)",
+            df_prov, x="PROVIDERNAME", y="TOTALFINVALUE",
+            title="Top 20 Providers by Contract Value"
         )
         fig_prov.update_layout(xaxis_tickangle=-45)
         st.plotly_chart(fig_prov, use_container_width=True)
     else:
-        st.info("TOTAL_FIN_VALUE not available to rank providers.")
+        st.info("Cannot display provider ranking.")
 
-# -------------------------
-# Raw data expander
-# -------------------------
-with st.expander("📄 View raw filtered data"):
+with tab4:
+    # Custom dynamic chart based on user selection
+    group_col = st.selectbox(
+        "Group By", options=[col for col in df_filtered.columns if df_filtered[col].dtype == 'O']
+    )
+    value_col = st.selectbox(
+        "Value Metric", options=[col for col in df_filtered.columns if df_filtered[col].dtype != 'O']
+    )
+    chart_type = st.radio("Chart Type", ("Bar", "Line", "Scatter"))
+    chart_df = (
+        df_filtered.groupby(group_col)[value_col].sum()
+        .reset_index()
+        .sort_values(value_col, ascending=False)
+    )
+    if chart_type == "Bar":
+        fig_custom = px.bar(chart_df, x=group_col, y=value_col, title=f"{value_col} by {group_col}")
+    elif chart_type == "Line":
+        fig_custom = px.line(chart_df, x=group_col, y=value_col, title=f"{value_col} by {group_col}")
+    else:
+        fig_custom = px.scatter(chart_df, x=group_col, y=value_col, title=f"{value_col} by {group_col}")
+    st.plotly_chart(fig_custom, use_container_width=True)
+
+# Expander: Raw Data View
+with st.expander("View raw filtered data"):
     st.dataframe(df_filtered, use_container_width=True)
