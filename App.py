@@ -1,3 +1,4 @@
+import os
 import pandas as pd
 import streamlit as st
 import plotly.express as px
@@ -19,7 +20,7 @@ st.caption("Dynamic analysis interface for NHS-style contract data")
 # -------------------------
 @st.cache_data
 def load_data(path):
-    # path can be a file path (str) or an uploaded file object
+    # 'path' can be a file path (str) or an uploaded file object
     df = pd.read_csv(path)
 
     # Handle YEARMONTH like 202506 -> "20250601" -> 2025-06-01
@@ -49,13 +50,29 @@ def load_data(path):
 # -------------------------
 DEFAULT_PATH = "contractannual202506.csv"
 
-uploaded = st.sidebar.file_uploader("📁 Upload NHS Dental Contract CSV", type=["csv"])
+st.sidebar.header("📁 Data source")
+
+uploaded = st.sidebar.file_uploader(
+    "Upload NHS Dental Contract CSV",
+    type=["csv"],
+    help="Example: contractannual202506.csv from NHS dataset"
+)
 
 if uploaded is not None:
+    # Use the uploaded file
     df = load_data(uploaded)
 else:
-    st.sidebar.info("Using default local file: contractannual202506.csv")
-    df = load_data(DEFAULT_PATH)
+    # Try to use default file from the repo
+    if os.path.exists(DEFAULT_PATH):
+        st.sidebar.info(f"Using default local file: {DEFAULT_PATH}")
+        df = load_data(DEFAULT_PATH)
+    else:
+        st.error(
+            "No data file found.\n\n"
+            "Please upload a CSV using the sidebar to continue.\n"
+            f"(Default file `{DEFAULT_PATH}` is not present on the server.)"
+        )
+        st.stop()  # Stop app if we have no data
 
 # -------------------------
 # Sidebar: Interactive Filters
